@@ -1,0 +1,1277 @@
+openapi: 3.0.3
+info:
+  title: Academic Tracker API
+  description: |
+    API веб-трекера для отслеживания успеваемости, дедлайнов и учебных долгов.
+    Включает в себя управление пользователями, CRUD предметов и оценок, вложенные подзадачи,
+    интеграционные модули (Дневник.ру / БРС УрФУ) и генерацию аналитических данных для графиков.
+  version: 1.0.0
+servers:
+  - url: https://api.academic-tracker.ru/v1
+    description: Production Server
+  - url: http://localhost:8080/v1
+    description: Local Development Server
+
+paths:
+  # ==========================================
+  # АВТОРИЗАЦИЯ И ПОЛЬЗОВАТЕЛИ
+  # ==========================================
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Регистрация нового пользователя
+      description: Создание учетной записи студента или школьника.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Пользователь успешно зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '409':
+          description: Пользователь с таким Email уже существует
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Авторизация пользователя
+      description: Вход в систему по email и паролю.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешная авторизация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Неверные учетные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Выход из системы
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Успешный выход, токен аннулирован
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /auth/forgot-password:
+    post:
+      tags:
+        - Authentication
+      summary: Запрос на восстановление пароля
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: ivan@example.ru
+      responses:
+        '200':
+          description: Инструкции по восстановлению отправлены на почту
+        '404':
+          description: Пользователь не найден
+
+  /users/profile:
+    get:
+      tags:
+        - Users
+      summary: Получение профиля текущего пользователя
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Данные профиля (используются для сайдбара и шапки)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+    patch:
+      tags:
+        - Users
+      summary: Обновление данных профиля
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Профиль успешно обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  # ==========================================
+  # ПРЕДМЕТЫ (SUBJECTS)
+  # ==========================================
+  /subjects:
+    get:
+      tags:
+        - Subjects
+      summary: Получение списка предметов пользователя
+      description: Используется для отображения таблицы предметов или плиточного интерфейса карточек с пагинацией.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+          description: Номер страницы
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+          description: Количество элементов на странице
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Фильтр по названию предмета или ФИО преподавателя
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ON_TRACK, WARNING, OVERDUE]
+          description: Фильтр по статусу успеваемости/долгов
+      responses:
+        '200':
+          description: Список предметов с метаданными пагинации
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Subject'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+    post:
+      tags:
+        - Subjects
+      summary: Создание нового предмета
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectCreateRequest'
+      responses:
+        '201':
+          description: Предмет успешно создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subject'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /subjects/{id}:
+    get:
+      tags:
+        - Subjects
+      summary: Получение детальной информации о предмете
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Идентификатор предмета
+      responses:
+        '200':
+          description: Детальная информация, включая вложенные подзадачи и оценки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDetail'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+    put:
+      tags:
+        - Subjects
+      summary: Полное обновление данных предмета
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectUpdateRequest'
+      responses:
+        '200':
+          description: Данные предмета обновлены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubjectDetail'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+    delete:
+      tags:
+        - Subjects
+      summary: Удаление предмета
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Предмет успешно удален
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  # ==========================================
+  # ПОДЗАДАЧИ ВНУТРИ ПРЕДМЕТА (SUBTASKS)
+  # ==========================================
+  /subjects/{id}/subtasks:
+    post:
+      tags:
+        - Subtasks
+      summary: Добавление вложенной подзадачи/контрольной точки к предмету
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Идентификатор родительского предмета
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubtaskCreateRequest'
+      responses:
+        '201':
+          description: Подзадача успешно добавлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subtask'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /subtasks/{subtaskId}:
+    put:
+      tags:
+        - Subtasks
+      summary: Редактирование параметров подзадачи
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: subtaskId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubtaskUpdateRequest'
+      responses:
+        '200':
+          description: Данные подзадачи обновлены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subtask'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+    delete:
+      tags:
+        - Subtasks
+      summary: Удаление подзадачи
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: subtaskId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Подзадача удалена
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  # ==========================================
+  # ОЦЕНКИ (GRADES)
+  # ==========================================
+  /subjects/{id}/grades:
+    post:
+      tags:
+        - Grades
+      summary: Добавление новой оценки к предмету или его подзадаче
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Идентификатор предмета
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GradeCreateRequest'
+      responses:
+        '201':
+          description: Оценка успешно добавлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Grade'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+
+  /grades/{gradeId}:
+    put:
+      tags:
+        - Grades
+      summary: Обновление оценки
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: gradeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GradeUpdateRequest'
+      responses:
+        '200':
+          description: Оценка изменена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Grade'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+    delete:
+      tags:
+        - Grades
+      summary: Удаление оценки
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: gradeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Оценка успешно удалена
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  # ==========================================
+  # КАЛЕНДАРЬ И ЛЕНТА ВРЕМЕНИ
+  # ==========================================
+  /calendar/month:
+    get:
+      tags:
+        - Calendar
+      summary: Получение структуры событий для классического календаря-сетки
+      description: Отдает список событий с привязкой к конкретным датам выбранного месяца (Экран 3).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: year
+          in: query
+          required: true
+          schema:
+            type: integer
+            example: 2026
+        - name: month
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+            example: 4
+      responses:
+        '200':
+          description: Список дедлайнов и событий, распределенных по датам
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CalendarDayEvents'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /calendar/timeline:
+    get:
+      tags:
+        - Calendar
+      summary: Получение структуры для горизонтальной ленты времени (Гант-вид)
+      description: Возвращает временные интервалы изучения предметов и конкретные даты дедлайнов на линиях.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Данные для построения интерактивной горизонтальной шкалы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineData'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  # ==========================================
+  # АНАЛИТИКА И ГРАФИКИ
+  # ==========================================
+  /analytics/progress:
+    get:
+      tags:
+        - Analytics
+      summary: Данные для линейного графика динамики успеваемости
+      description: Ось X = Даты срезов успеваемости, Ось Y = Значения среднего балла / БРС.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [MONTH, SEMESTER, YEAR]
+            default: SEMESTER
+      responses:
+        '200':
+          description: Набор точек (дата -> средний балл) для построения кривой прогресса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressChartData'
+
+  /analytics/radar:
+    get:
+      tags:
+        - Analytics
+      summary: Данные для радарной диаграммы
+      description: Отображает соотношение успеваемости по разным предметам, подсвечивая слабые и сильные зоны студента.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Сравнительные веса успеваемости по ключевым дисциплинам
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RadarChartData'
+
+  # ==========================================
+  # ЭКСПОРТ ДАННЫХ
+  # ==========================================
+  /reports/export-pdf:
+    get:
+      tags:
+        - Reports
+      summary: Скачивание PDF-отчета по успеваемости и долгам
+      description: Генерирует и скачивает оптимизированный отчет со средними баллами, закрытыми и открытыми дедлайнами.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: PDF-документ успешно сгенерирован
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  # ==========================================
+  # ИНТЕГРАЦИЯ С ВНЕШНИМИ СИСТЕМАМИ
+  # ==========================================
+  /integration/sync:
+    post:
+      tags:
+        - Integration
+      summary: Синхронизация данных с внешними платформами (Дневник.ру / УрФУ БРС)
+      description: Импортирует структуру предметов, текущие оценки и дедлайны из внешней образовательной среды.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequest'
+      responses:
+        '200':
+          description: Синхронизация завершена успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported_subjects_count:
+                    type: integer
+                    example: 5
+                  imported_grades_count:
+                    type: integer
+                    example: 24
+                  status:
+                    type: string
+                    example: SUCCESS
+        '400':
+          description: Неверные параметры авторизации во внешней системе
+
+# ==========================================
+# КОМПОНЕНТЫ И СХЕМЫ ДАННЫХ
+# ==========================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    400BadRequest:
+      description: Некорректный запрос или ошибки валидации полей
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    401Unauthorized:
+      description: Токен авторизации отсутствует или недействителен
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    404NotFound:
+      description: Запрашиваемый ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # Ошибки
+    ErrorResponse:
+      type: object
+      required:
+        - timestamp
+        - status
+        - error
+        - message
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: '2026-04-07T12:30:00Z'
+        status:
+          type: integer
+          example: 400
+        error:
+          type: string
+          example: Bad Request
+        message:
+          type: string
+          example: Поле 'email' должно содержать корректный адрес электронной почты
+        details:
+          type: array
+          items:
+            type: string
+            example: "password: Пароль должен содержать минимум 8 символов"
+
+    # Авторизация
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          example: ivan_ivanov
+        email:
+          type: string
+          format: email
+          example: ivan@example.ru
+        password:
+          type: string
+          minLength: 8
+          example: Str0ngP@ss
+        group:
+          type: string
+          example: РИ-320001
+          description: Учебная группа (необязательно, актуально для ВУЗов/школ)
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: ivan@example.ru
+        password:
+          type: string
+          example: Str0ngP@ss
+        remember_me:
+          type: boolean
+          default: false
+
+    AuthResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+        - user
+      properties:
+        access_token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          description: Время жизни токена в секундах
+          example: 86400
+        user:
+          $ref: '#/components/schemas/UserProfile'
+
+    UserProfile:
+      type: object
+      required:
+        - id
+        - username
+        - email
+        - avatar_url
+      properties:
+        id:
+          type: integer
+          example: 42
+        username:
+          type: string
+          example: Иванов Иван
+        email:
+          type: string
+          format: email
+          example: ivan@example.ru
+        group:
+          type: string
+          nullable: true
+          example: РИ-320001
+        avatar_url:
+          type: string
+          format: uri
+          example: https://api.academic-tracker.ru/avatars/ivanov.jpg
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          example: Иванов Иван
+        group:
+          type: string
+          example: РИ-320002
+        avatar_url:
+          type: string
+          format: uri
+
+    # Пагинация
+    PaginationMeta:
+      type: object
+      required:
+        - total_items
+        - item_count
+        - items_per_page
+        - total_pages
+        - current_page
+      properties:
+        total_items:
+          type: integer
+          example: 25
+        item_count:
+          type: integer
+          example: 10
+        items_per_page:
+          type: integer
+          example: 10
+        total_pages:
+          type: integer
+          example: 3
+        current_page:
+          type: integer
+          example: 1
+
+    # Предметы (Базовые и Детальные модели)
+    Subject:
+      type: object
+      required:
+        - id
+        - title
+        - teacher_name
+        - average_grade
+        - status
+        - start_date
+        - end_date
+      properties:
+        id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: Математический анализ
+        teacher_name:
+          type: string
+          example: Иванов И.И.
+        average_grade:
+          type: number
+          format: float
+          nullable: true
+          example: 4.5
+        status:
+          type: string
+          enum: [ON_TRACK, WARNING, OVERDUE]
+          description: |
+            Определяет цветовую индикацию:
+            - ON_TRACK: Все сдано вовремя, средний балл высокий (зеленый).
+            - WARNING: Есть задолженности без просроченных жестких дедлайнов (желтый).
+            - OVERDUE: Просрочен дедлайн по контрольной точке (красный).
+          example: ON_TRACK
+        start_date:
+          type: string
+          format: date
+          example: '2026-02-01'
+        end_date:
+          type: string
+          format: date
+          example: '2026-06-30'
+
+    SubjectDetail:
+      allOf:
+        - $ref: '#/components/schemas/Subject'
+        - type: object
+          properties:
+            notes:
+              type: string
+              example: Сдать домашнюю работу №3 до конца недели. Подготовиться к коллоквиуму.
+            subtasks:
+              type: array
+              items:
+                $ref: '#/components/schemas/Subtask'
+            grades:
+              type: array
+              items:
+                $ref: '#/components/schemas/Grade'
+
+    SubjectCreateRequest:
+      type: object
+      required:
+        - title
+        - start_date
+        - end_date
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Математический анализ
+        teacher_name:
+          type: string
+          example: Иванов И.И.
+        notes:
+          type: string
+          example: Подготовить доклады к семинарам
+        start_date:
+          type: string
+          format: date
+          example: '2026-02-01'
+        end_date:
+          type: string
+          format: date
+          example: '2026-06-30'
+
+    SubjectUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Математический анализ (Продвинутый курс)
+        teacher_name:
+          type: string
+          example: Петров П.П.
+        notes:
+          type: string
+          example: Сдать ИДЗ
+        start_date:
+          type: string
+          format: date
+          example: '2026-02-10'
+        end_date:
+          type: string
+          format: date
+          example: '2026-07-05'
+
+    # Подзадачи (Subtasks)
+    Subtask:
+      type: object
+      required:
+        - id
+        - title
+        - start_date
+        - end_date
+        - status
+        - is_completed
+      properties:
+        id:
+          type: integer
+          example: 101
+        title:
+          type: string
+          example: Домашнее задание №1 (Интегралы)
+        notes:
+          type: string
+          nullable: true
+          example: Решить задачи с 15 по 30 из задачника Демидовича
+        start_date:
+          type: string
+          format: date
+          example: '2026-02-15'
+        end_date:
+          type: string
+          format: date
+          example: '2026-03-01'
+        status:
+          type: string
+          enum: [ON_TRACK, WARNING, OVERDUE]
+          example: OVERDUE
+        is_completed:
+          type: boolean
+          example: false
+        grade:
+          $ref: '#/components/schemas/Grade'
+
+    SubtaskCreateRequest:
+      type: object
+      required:
+        - title
+        - start_date
+        - end_date
+      properties:
+        title:
+          type: string
+          example: Лабораторная работа №2
+        notes:
+          type: string
+          example: Написать парсер на Go
+        start_date:
+          type: string
+          format: date
+          example: '2026-03-10'
+        end_date:
+          type: string
+          format: date
+          example: '2026-03-25'
+
+    SubtaskUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Лабораторная работа №2 (Рефакторинг)
+        notes:
+          type: string
+          example: Исправить утечки памяти
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        is_completed:
+          type: boolean
+          example: true
+
+    # Оценки (Grades)
+    Grade:
+      type: object
+      required:
+        - id
+        - value
+        - max_value
+        - date_received
+      properties:
+        id:
+          type: integer
+          example: 501
+        value:
+          type: number
+          format: float
+          description: Оценка (может быть как пятибалльной шкалой 2-5, так и БРС баллами 0-100)
+          example: 4.0
+        max_value:
+          type: number
+          format: float
+          description: Максимальный балл (например, 5 для школы, 20 для конкретной лабораторной по БРС УрФУ)
+          example: 5.0
+        comment:
+          type: string
+          nullable: true
+          example: Сдано вовремя, мелкие недочеты в оформлении
+        date_received:
+          type: string
+          format: date
+          example: '2026-03-05'
+        subtask_id:
+          type: integer
+          nullable: true
+          example: 101
+
+    GradeCreateRequest:
+      type: object
+      required:
+        - value
+        - max_value
+        - date_received
+      properties:
+        value:
+          type: number
+          format: float
+          example: 5
+        max_value:
+          type: number
+          format: float
+          example: 5
+        comment:
+          type: string
+          example: Отличный ответ на семинаре
+        date_received:
+          type: string
+          format: date
+          example: '2026-04-07'
+        subtask_id:
+          type: integer
+          nullable: true
+          description: Связь оценки с подзадачей (при наличии)
+          example: 101
+
+    GradeUpdateRequest:
+      type: object
+      properties:
+        value:
+          type: number
+          format: float
+          example: 4
+        comment:
+          type: string
+          example: Оценка пересмотрена преподавателем
+
+    # Календарные схемы
+    CalendarDayEvents:
+      type: object
+      required:
+        - date
+        - is_today
+        - events
+      properties:
+        date:
+          type: string
+          format: date
+          example: '2026-04-07'
+        is_today:
+          type: boolean
+          example: true
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/CalendarEvent'
+
+    CalendarEvent:
+      type: object
+      required:
+        - id
+        - type
+        - title
+        - subject_title
+        - status
+      properties:
+        id:
+          type: integer
+          example: 102
+        type:
+          type: string
+          enum: [SUBJECT_START, SUBJECT_END, SUBTASK_DEADLINE]
+          example: SUBTASK_DEADLINE
+        title:
+          type: string
+          example: Сдача Лабораторной №1
+        subject_title:
+          type: string
+          example: Архитектура вычислительных систем
+        status:
+          type: string
+          enum: [ON_TRACK, WARNING, OVERDUE]
+          example: WARNING
+
+    TimelineData:
+      type: object
+      required:
+        - today_date
+        - timelines
+      properties:
+        today_date:
+          type: string
+          format: date
+          example: '2026-04-07'
+        timelines:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubjectTimelineLine'
+
+    SubjectTimelineLine:
+      type: object
+      required:
+        - subject_id
+        - subject_title
+        - start_date
+        - end_date
+        - milestones
+      properties:
+        subject_id:
+          type: integer
+          example: 1
+        subject_title:
+          type: string
+          example: Базы Данных
+        start_date:
+          type: string
+          format: date
+          example: '2026-02-01'
+        end_date:
+          type: string
+          format: date
+          example: '2026-06-15'
+        milestones:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineMilestone'
+
+    TimelineMilestone:
+      type: object
+      required:
+        - id
+        - type
+        - date
+        - title
+        - status
+      properties:
+        id:
+          type: integer
+          example: 221
+        type:
+          type: string
+          enum: [DEADLINE, EXAM, MIDTERM]
+          example: DEADLINE
+        date:
+          type: string
+          format: date
+          example: '2026-04-15'
+        title:
+          type: string
+          example: РК 1 (Теория нормализации)
+        status:
+          type: string
+          enum: [ON_TRACK, WARNING, OVERDUE]
+          example: ON_TRACK
+
+    # Схемы Аналитики
+    ProgressChartData:
+      type: object
+      required:
+        - points
+      properties:
+        points:
+          type: array
+          items:
+            type: object
+            required:
+              - date
+              - average_gpa
+            properties:
+              date:
+                type: string
+                format: date
+                example: '2026-02-28'
+              average_gpa:
+                type: number
+                format: float
+                example: 4.12
+
+    RadarChartData:
+      type: object
+      required:
+        - datasets
+      properties:
+        datasets:
+          type: array
+          items:
+            type: object
+            required:
+              - subject_title
+              - score
+              - max_score
+            properties:
+              subject_title:
+                type: string
+                example: Дискретная математика
+              score:
+                type: number
+                format: float
+                description: Текущий балл студента по предмету
+                example: 82.0
+              max_score:
+                type: number
+                format: float
+                description: Максимально возможный балл
+                example: 100.0
+
+    # Схемы внешней интеграции
+    SyncRequest:
+      type: object
+      required:
+        - platform_type
+        - credentials
+      properties:
+        platform_type:
+          type: string
+          enum: [DNEVNIK_RU, URFU_BRS]
+          example: URFU_BRS
+        credentials:
+          type: object
+          required:
+            - login
+            - password
+          properties:
+            login:
+              type: string
+              example: ivan.ivanov@urfu.me
+            password:
+              type: string
+              example: SecurePass123
+            external_api_token:
+              type: string
+              nullable: true
+              example: d7f093a1-77b3-4f9e-a0df-039c09fe7a34
