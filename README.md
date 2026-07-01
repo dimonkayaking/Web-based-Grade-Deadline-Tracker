@@ -613,7 +613,7 @@ backend/
 │   │   └── calendar.py      # Календарь и задания
 │   └── utils/               # Утилиты
 │       ├── validators.py
-│       └── export_import.py # Экспорт/импорт XLSX
+│       └── export_import.py # Экспорт XLSX/импорт XLSX и CSV
 ├── migrations/              # Alembic миграции
 ├── Dockerfile
 ├── requirements.txt
@@ -632,5 +632,4 @@ backend/
   - Задания (CRUD)
   - Оценки (CRUD)
   - Календарь (месяц, лента времени)
-  - Экспорт/импорт данных (XLSX)
-  - Интеграция (синхронизация с внешними системами)
+  - Экспорт (XLSX)/импорт данных (XLSX, CSV)
