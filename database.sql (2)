@@ -1,0 +1,42 @@
+CREATE TABLE Users (
+    user_id INT NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    CONSTRAINT PK_Users PRIMARY KEY (user_id)
+);
+
+CREATE TABLE Subjects (
+    subject_id INT NOT NULL,
+    user_id INT NOT NULL,
+    subject_name VARCHAR(100) NOT NULL,
+    teacher_name VARCHAR(255),
+    color VARCHAR(7),
+    CONSTRAINT PK_Subjects PRIMARY KEY (subject_id),
+    CONSTRAINT FK_Subjects_Users FOREIGN KEY (user_id)
+    REFERENCES Users (user_id) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE Assignments (
+    assignment_id INT NOT NULL,
+    subject_id INT NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    due_date TIMESTAMP NOT NULL, 
+    CONSTRAINT PK_Assignments PRIMARY KEY (assignment_id),
+    CONSTRAINT FK_Assignments_Subjects FOREIGN KEY (subject_id) 
+    REFERENCES Subjects (subject_id) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE Grades (
+    grade_id INT NOT NULL,
+    subject_id INT NOT NULL,
+    grade_value VARCHAR(10) NOT NULL,
+    graded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    description TEXT,
+    CONSTRAINT PK_Grades PRIMARY KEY (grade_id),
+    CONSTRAINT FK_Grades_Subjects FOREIGN KEY (subject_id) 
+    REFERENCES Subjects (subject_id) 
+    ON DELETE CASCADE ON UPDATE CASCADE
+);
